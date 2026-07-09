@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f1117">
+<title>RealTime 文字おこし — リアルタイム文字起こし&議事録</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg2: #171a23;
+    --bg3: #1f2330;
+    --border: #2a2f3f;
+    --text: #e8eaf0;
+    --text-dim: #9aa1b5;
+    --accent: #4f8cff;
+    --accent-hover: #6ba0ff;
+    --danger: #ff5566;
+    --ok: #3ddc84;
+    --warn: #ffb84f;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f5f8;
+      --bg2: #ffffff;
+      --bg3: #eceef4;
+      --border: #d8dbe4;
+      --text: #1b1e28;
+      --text-dim: #5c6374;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .app {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 12px 12px calc(16px + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    gap: 12px;
+  }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 4px 2px;
+  }
+  header h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: .02em; }
+  header h1 .sub { font-size: .72rem; font-weight: 500; color: var(--text-dim); display: block; }
+  .spacer { flex: 1; }
+  .status {
+    display: flex; align-items: center; gap: 8px;
+    font-size: .85rem; color: var(--text-dim);
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 14px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+  .dot.rec { background: var(--danger); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  #timer { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+
+  /* ---------- Control bar ---------- */
+  .controls {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+  .src-toggles { display: flex; gap: 8px; flex-wrap: wrap; }
+  .toggle {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px;
+    cursor: pointer; user-select: none;
+    font-size: .9rem;
+    min-height: 44px;
+  }
+  .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .toggle.disabled { opacity: .45; cursor: not-allowed; }
+  .meter {
+    width: 46px; height: 6px; border-radius: 3px;
+    background: var(--border); overflow: hidden; flex-shrink: 0;
+  }
+  .meter > i { display: block; height: 100%; width: 0%; background: var(--ok); transition: width .12s linear; }
+
+  button {
+    font-family: inherit; font-size: .95rem;
+    border: 1px solid var(--border);
+    background: var(--bg3); color: var(--text);
+    border-radius: 10px;
+    padding: 10px 18px;
+    cursor: pointer;
+    min-height: 44px;
+    transition: filter .15s, background .15s;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.15); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+  button.danger  { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 700; }
+  button.big { font-size: 1.05rem; padding: 12px 26px; border-radius: 12px; }
+  button.small { min-height: 36px; padding: 6px 12px; font-size: .82rem; }
+
+  /* ---------- Tabs ---------- */
+  .tabs { display: flex; gap: 6px; }
+  .tabs button {
+    flex: 1; border-radius: 10px 10px 0 0; border-bottom: none;
+    background: transparent; color: var(--text-dim); border-color: transparent;
+    font-weight: 600;
+  }
+  .tabs button.active { background: var(--bg2); color: var(--text); border-color: var(--border); }
+  .panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 0 0 var(--radius) var(--radius);
+    padding: 14px;
+    flex: 1;
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 320px;
+  }
+  .panel.active { display: flex; }
+
+  /* ---------- Transcript ---------- */
+  .transcript-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .transcript-toolbar .hint { font-size: .78rem; color: var(--text-dim); }
+  #transcript {
+    flex: 1;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 4px;
+    min-height: 240px;
+    max-height: 56vh;
+  }
+  .entry {
+    display: flex; gap: 10px; align-items: baseline;
+    padding: 8px 12px;
+    background: var(--bg3);
+    border-radius: 10px;
+    font-size: .95rem;
+  }
+  @keyframes fadein { from { opacity: 0; transform: translateY(4px); } }
+  .entry .time { font-size: .74rem; color: var(--text-dim); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .entry .src {
+    font-size: .7rem; font-weight: 700; flex-shrink: 0;
+    padding: 1px 8px; border-radius: 999px;
+  }
+  .entry .src.mic  { background: rgba(79,140,255,.18); color: var(--accent-hover); }
+  .entry .src.desk { background: rgba(61,220,132,.16); color: var(--ok); }
+  .entry .txt { word-break: break-word; }
+  .entry.interim { opacity: .55; font-style: italic; }
+  .empty-note { color: var(--text-dim); text-align: center; padding: 40px 12px; font-size: .9rem; }
+
+  /* ---------- Minutes ---------- */
+  #minutesOut {
+    flex: 1; overflow-y: auto;
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
+    font-size: .93rem;
+    min-height: 200px; max-height: 56vh;
+  }
+  #minutesOut h1, #minutesOut h2, #minutesOut h3 { margin: .8em 0 .35em; line-height: 1.35; }
+  #minutesOut h1 { font-size: 1.25rem; } #minutesOut h2 { font-size: 1.1rem; } #minutesOut h3 { font-size: 1rem; }
+  #minutesOut ul, #minutesOut ol { padding-left: 1.4em; margin: .3em 0; }
+  #minutesOut p { margin: .4em 0; }
+  #minutesOut code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: .86em; }
+  #minutesOut pre { background: var(--bg); padding: 10px; border-radius: 8px; overflow-x: auto; margin: .5em 0; }
+  #minutesOut table { border-collapse: collapse; margin: .5em 0; }
+  #minutesOut th, #minutesOut td { border: 1px solid var(--border); padding: 4px 10px; }
+  #minutesOut blockquote { border-left: 3px solid var(--accent); padding-left: 10px; color: var(--text-dim); margin: .4em 0; }
+
+  /* ---------- Settings ---------- */
+  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .settings-grid { grid-template-columns: 1fr; } }
+  fieldset {
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px 14px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  legend { font-size: .82rem; font-weight: 700; color: var(--text-dim); padding: 0 6px; }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: .82rem; color: var(--text-dim); }
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    font-family: inherit; font-size: .92rem;
+    background: var(--bg3); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; width: 100%;
+    min-height: 42px;
+  }
+  textarea { resize: vertical; line-height: 1.5; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  .row > .field { flex: 1; }
+  .note { font-size: .75rem; color: var(--text-dim); }
+  .note.warn { color: var(--warn); }
+
+  /* ---------- Toast ---------- */
+  #toasts {
+    position: fixed; bottom: calc(16px + env(safe-area-inset-bottom)); left: 50%;
+    transform: translateX(-50%);
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 100; width: min(92vw, 480px);
+  }
+  .toast {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px; padding: 10px 14px;
+    font-size: .87rem;
+    box-shadow: 0 6px 24px rgba(0,0,0,.35);
+    animation: fadein .2s ease;
+  }
+  .toast.error { border-left-color: var(--danger); }
+  .toast.warn  { border-left-color: var(--warn); }
+  .toast.ok    { border-left-color: var(--ok); }
+
+  details.adv summary { cursor: pointer; font-size: .85rem; color: var(--text-dim); user-select: none; padding: 4px 0; }
+  .gen-status { font-size: .82rem; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
+  .spinner {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    animation: spin .8s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 640px) {
+    header h1 { font-size: 1rem; }
+    .controls { padding: 10px; gap: 8px; }
+    button.big { flex: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <h1>🎙️ RealTime 文字おこし<span class="sub">マイク+デスクトップ音声 リアルタイム文字起こし &amp; 議事録</span></h1>
+    <div class="spacer"></div>
+    <div class="status">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">待機中</span>
+      <span id="timer">00:00:00</span>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="src-toggles">
+      <label class="toggle" id="micToggle">
+        <input type="checkbox" id="useMic" checked>
+        <span>🎤 マイク</span>
+        <span class="meter"><i id="micMeter"></i></span>
+      </label>
+      <label class="toggle" id="deskToggle">
+        <input type="checkbox" id="useDesk">
+        <span>🖥️ デスクトップ音声</span>
+        <span class="meter"><i id="deskMeter"></i></span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="saveAudio" checked>
+        <span>💾 音声を保存</span>
+      </label>
+    </div>
+    <div class="spacer"></div>
+    <button class="primary big" id="startBtn">● 録音開始</button>
+    <button class="danger big" id="stopBtn" style="display:none">■ 停止</button>
+  </div>
+
+  <div class="tabs">
+    <button class="active" data-tab="transcriptPanel">📝 文字起こし</button>
+    <button data-tab="minutesPanel">📋 議事録</button>
+    <button data-tab="settingsPanel">⚙️ 設定</button>
+  </div>
+
+  <!-- ============ Transcript panel ============ -->
+  <section class="panel active" id="transcriptPanel">
+    <div class="transcript-toolbar">
+      <button class="small" id="copyTranscriptBtn">コピー</button>
+      <button class="small" id="downloadTranscriptBtn">ダウンロード (.md)</button>
+      <button class="small" id="clearTranscriptBtn">クリア</button>
+      <span class="spacer"></span>
+      <span class="hint" id="engineHint"></span>
+    </div>
+    <div id="transcript">
+      <div class="empty-note" id="emptyNote">
+        「● 録音開始」を押すと、ここに文字起こしがリアルタイムで表示されます。<br><br>
+        🖥️ デスクトップ音声を使う場合は、開始時の画面共有ダイアログで<br>
+        <b>「タブ」または「画面全体」を選び、「音声を共有」に必ずチェック</b>を入れてください。
+      </div>
+    </div>
+    <div id="audioDownloadArea"></div>
+  </section>
+
+  <!-- ============ Minutes panel ============ -->
+  <section class="panel" id="minutesPanel">
+    <div class="transcript-toolbar">
+      <button class="primary" id="genMinutesBtn">✨ 議事録を作成</button>
+      <button class="small" id="stopGenBtn" style="display:none">生成を停止</button>
+      <button class="small" id="copyMinutesBtn">コピー</button>
+      <button class="small" id="downloadMinutesBtn">ダウンロード (.md)</button>
+      <span class="spacer"></span>
+      <span class="gen-status" id="genStatus"></span>
+    </div>
+    <details class="adv">
+      <summary>プロンプトを編集</summary>
+      <label class="field" style="margin-top:8px">
+        議事録生成プロンプト(<code>{transcript}</code> が文字起こし全文に置き換わります)
+        <textarea id="promptTemplate" rows="8"></textarea>
+      </label>
+    </details>
+    <div id="minutesOut"><span class="note">文字起こし後に「✨ 議事録を作成」を押すと、設定したAIが議事録をまとめます。</span></div>
+  </section>
+
+  <!-- ============ Settings panel ============ -->
+  <section class="panel" id="settingsPanel">
+    <div class="settings-grid">
+
+      <fieldset>
+        <legend>文字起こし</legend>
+        <label class="field">エンジン
+          <select id="sttEngine">
+            <option value="webspeech">ブラウザ内蔵 (Web Speech API・無料・マイクのみ)</option>
+            <option value="whisper">Whisper互換API (マイク+デスクトップ・話者ラベル付き)</option>
+            <option value="hybrid">ハイブリッド (マイク=内蔵 / デスクトップ=Whisper)</option>
+          </select>
+        </label>
+        <label class="field">言語
+          <select id="sttLang">
+            <option value="ja-JP">日本語</option>
+            <option value="en-US">English (US)</option>
+            <option value="zh-CN">中文 (简体)</option>
+            <option value="ko-KR">한국어</option>
+            <option value="es-ES">Español</option>
+            <option value="fr-FR">Français</option>
+            <option value="de-DE">Deutsch</option>
+          </select>
+        </label>
+        <label class="field">Whisper送信間隔(秒)
+          <input type="number" id="chunkSec" min="5" max="60" step="1" value="15">
+        </label>
+        <span class="note">ブラウザ内蔵エンジンは Chrome / Edge / Android Chrome で動作します。デスクトップ音声も文字起こししたい場合は Whisper互換API か ハイブリッド を選んでください。</span>
+      </fieldset>
+
+      <fieldset>
+        <legend>Whisper互換API (音声認識)</legend>
+        <label class="field">ベースURL
+          <input type="text" id="whisperBaseUrl" placeholder="http://localhost:8000/v1">
+        </label>
+        <label class="field">APIキー(不要なら空欄)
+          <input type="password" id="whisperApiKey" autocomplete="off" placeholder="sk-...">
+        </label>
+        <label class="field">モデル
+          <input type="text" id="whisperModel" placeholder="whisper-1">
+        </label>
+        <span class="note">OpenAI (<code>https://api.openai.com/v1</code> / whisper-1)、Groq (<code>https://api.groq.com/openai/v1</code> / whisper-large-v3)、ローカルの faster-whisper-server / speaches などに対応。</span>
+      </fieldset>
+
+      <fieldset>
+        <legend>議事録AI (チャットモデル)</legend>
+        <label class="field">プロバイダ
+          <select id="llmProvider">
+            <option value="lmstudio">LM Studio (ローカル)</option>
+            <option value="ollama">Ollama (ローカル)</option>
+            <option value="openai">OpenAI</option>
+            <option value="groq">Groq</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="custom">カスタム (OpenAI互換)</option>
+          </select>
+        </label>
+        <label class="field">ベースURL
+          <input type="text" id="llmBaseUrl" placeholder="http://localhost:1234/v1">
+        </label>
+        <label class="field">APIキー(ローカルなら空欄可)
+          <input type="password" id="llmApiKey" autocomplete="off" placeholder="sk-...">
+        </label>
+        <div class="row">
+          <label class="field">モデル
+            <input type="text" id="llmModel" list="modelList" placeholder="例: gpt-4o-mini / qwen2.5-14b-instruct">
+            <datalist id="modelList"></datalist>
+          </label>
+          <button class="small" id="fetchModelsBtn" title="サーバーからモデル一覧を取得">一覧取得</button>
+        </div>
+        <span class="note" id="llmNote"></span>
+      </fieldset>
+
+      <fieldset>
+        <legend>その他</legend>
+        <button class="small" id="testLlmBtn">🔌 議事録AIに接続テスト</button>
+        <button class="small" id="resetSettingsBtn">設定をリセット</button>
+        <span class="note warn">⚠️ APIキーはこのブラウザの localStorage にのみ保存されます。共用端末では保存に注意してください。</span>
+        <span class="note">💡 LM Studio を使う場合はサーバー設定で <b>CORS を有効化</b>してください(Developer → Settings → Enable CORS)。Ollama は <code>OLLAMA_ORIGINS=*</code> の設定が必要な場合があります。</span>
+        <span class="note">💡 このページは HTTPS または localhost、もしくはファイルを直接開いた状態で動作します(マイク権限のため)。</span>
+      </fieldset>
+
+    </div>
+  </section>
+
+</div>
+
+<div id="toasts"></div>
+
+<script>
+"use strict";
+
+/* =========================================================
+ *  Utilities
+ * ======================================================= */
+const $ = (id) => document.getElementById(id);
+
+function toast(msg, kind = "info", ms = 4200) {
+  const el = document.createElement("div");
+  el.className = "toast " + kind;
+  el.textContent = msg;
+  $("toasts").appendChild(el);
+  setTimeout(() => el.remove(), ms);
+}
+
+function fmtTime(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = String(Math.floor(sec / 3600)).padStart(2, "0");
+  const m = String(Math.floor((sec % 3600) / 60)).padStart(2, "0");
+  const s = String(sec % 60).padStart(2, "0");
+  return `${h}:${m}:${s}`;
+}
+
+function downloadBlob(blob, filename) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+function stamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast("コピーしました", "ok", 1800); }
+  catch { toast("コピーに失敗しました", "error"); }
+}
+
+/* Minimal markdown renderer (headings / bold / italic / lists / code / tables / quotes) */
+function renderMarkdown(md) {
+  const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const inline = (s) => esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/\*([^*]+)\*/g, "<i>$1</i>");
+  const lines = md.split("\n");
+  let html = "", inList = null, inCode = false, codeBuf = [], tableBuf = [];
+
+  const flushList = () => { if (inList) { html += `</${inList}>`; inList = null; } };
+  const flushTable = () => {
+    if (!tableBuf.length) return;
+    const rows = tableBuf.filter(r => !/^\s*\|?[\s\-:|]+\|?\s*$/.test(r));
+    html += "<table>" + rows.map((r, i) => {
+      const cells = r.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|");
+      const tag = i === 0 ? "th" : "td";
+      return "<tr>" + cells.map(c => `<${tag}>${inline(c.trim())}</${tag}>`).join("") + "</tr>";
+    }).join("") + "</table>";
+    tableBuf = [];
+  };
+
+  for (const raw of lines) {
+    if (raw.trim().startsWith("```")) {
+      if (inCode) { html += `<pre><code>${esc(codeBuf.join("\n"))}</code></pre>`; codeBuf = []; }
+      inCode = !inCode; continue;
+    }
+    if (inCode) { codeBuf.push(raw); continue; }
+    if (/^\s*\|.*\|\s*$/.test(raw)) { flushList(); tableBuf.push(raw); continue; }
+    flushTable();
+
+    const h = raw.match(/^(#{1,4})\s+(.*)/);
+    if (h) { flushList(); html += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`; continue; }
+    const ul = raw.match(/^\s*[-*・]\s+(.*)/);
+    if (ul) { if (inList !== "ul") { flushList(); html += "<ul>"; inList = "ul"; } html += `<li>${inline(ul[1])}</li>`; continue; }
+    const ol = raw.match(/^\s*\d+[.)]\s+(.*)/);
+    if (ol) { if (inList !== "ol") { flushList(); html += "<ol>"; inList = "ol"; } html += `<li>${inline(ol[1])}</li>`; continue; }
+    const q = raw.match(/^\s*>\s?(.*)/);
+    if (q) { flushList(); html += `<blockquote>${inline(q[1])}</blockquote>`; continue; }
+    flushList();
+    if (raw.trim() === "") continue;
+    html += `<p>${inline(raw)}</p>`;
+  }
+  if (inCode) html += `<pre><code>${esc(codeBuf.join("\n"))}</code></pre>`;
+  flushList(); flushTable();
+  return html;
+}
+
+/* =========================================================
+ *  Settings (persisted in localStorage)
+ * ======================================================= */
+const DEFAULT_PROMPT =
+`あなたは優秀な書記です。以下の会議の文字起こしを読み、日本語で議事録を作成してください。
+
+# 出力形式
+## 会議概要
+(日時・参加者が分かれば記載。分からなければ議題の要約)
+## 主な論点と議論の内容
+(箇条書きで整理)
+## 決定事項
+(箇条書き。なければ「なし」)
+## TODO・アクションアイテム
+(担当者が分かれば「- [ ] 内容(担当: 名前)」の形式)
+## その他・補足
+
+文字起こしには認識誤りが含まれる可能性があります。文脈から自然に補正してください。
+[マイク] はこの端末の話者、[デスクトップ] は通話相手や再生音声を指します。
+
+--- 文字起こし ---
+{transcript}`;
+
+const PROVIDER_PRESETS = {
+  lmstudio:  { baseUrl: "http://localhost:1234/v1",         note: "LM Studio のローカルサーバーを起動し、CORS を有効化してください。" },
+  ollama:    { baseUrl: "http://localhost:11434/v1",        note: "Ollama の OpenAI 互換エンドポイントを使用します。" },
+  openai:    { baseUrl: "https://api.openai.com/v1",        note: "OpenAI の API キーが必要です。" },
+  groq:      { baseUrl: "https://api.groq.com/openai/v1",   note: "Groq の API キーが必要です(無料枠あり・高速)。" },
+  anthropic: { baseUrl: "https://api.anthropic.com/v1",     note: "Anthropic の API キーが必要です(例: claude-sonnet-5)。" },
+  custom:    { baseUrl: "",                                 note: "任意の OpenAI 互換エンドポイントを指定してください。" },
+};
+
+const SETTINGS_KEY = "rtmoji_settings_v1";
+
+const defaultSettings = () => ({
+  sttEngine: "webspeech",
+  lang: "ja-JP",
+  chunkSec: 15,
+  whisper: { baseUrl: "", apiKey: "", model: "whisper-1" },
+  llm: { provider: "lmstudio", baseUrl: PROVIDER_PRESETS.lmstudio.baseUrl, apiKey: "", model: "" },
+  prompt: DEFAULT_PROMPT,
+});
+
+let settings = defaultSettings();
+try {
+  const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+  if (saved) settings = { ...defaultSettings(), ...saved,
+    whisper: { ...defaultSettings().whisper, ...(saved.whisper||{}) },
+    llm: { ...defaultSettings().llm, ...(saved.llm||{}) } };
+} catch {}
+
+function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
+
+function bindSettingsUI() {
+  $("sttEngine").value = settings.sttEngine;
+  $("sttLang").value = settings.lang;
+  $("chunkSec").value = settings.chunkSec;
+  $("whisperBaseUrl").value = settings.whisper.baseUrl;
+  $("whisperApiKey").value = settings.whisper.apiKey;
+  $("whisperModel").value = settings.whisper.model;
+  $("llmProvider").value = settings.llm.provider;
+  $("llmBaseUrl").value = settings.llm.baseUrl;
+  $("llmApiKey").value = settings.llm.apiKey;
+  $("llmModel").value = settings.llm.model;
+  $("promptTemplate").value = settings.prompt;
+  $("llmNote").textContent = (PROVIDER_PRESETS[settings.llm.provider] || {}).note || "";
+  updateEngineHint();
+}
+
+$("sttEngine").addEventListener("change", e => { settings.sttEngine = e.target.value; saveSettings(); updateEngineHint(); });
+$("sttLang").addEventListener("change", e => { settings.lang = e.target.value; saveSettings(); });
+$("chunkSec").addEventListener("change", e => { settings.chunkSec = Math.min(60, Math.max(5, +e.target.value || 15)); e.target.value = settings.chunkSec; saveSettings(); });
+$("whisperBaseUrl").addEventListener("change", e => { settings.whisper.baseUrl = e.target.value.trim().replace(/\/+$/, ""); e.target.value = settings.whisper.baseUrl; saveSettings(); });
+$("whisperApiKey").addEventListener("change", e => { settings.whisper.apiKey = e.target.value.trim(); saveSettings(); });
+$("whisperModel").addEventListener("change", e => { settings.whisper.model = e.target.value.trim(); saveSettings(); });
+$("llmBaseUrl").addEventListener("change", e => { settings.llm.baseUrl = e.target.value.trim().replace(/\/+$/, ""); e.target.value = settings.llm.baseUrl; saveSettings(); });
+$("llmApiKey").addEventListener("change", e => { settings.llm.apiKey = e.target.value.trim(); saveSettings(); });
+$("llmModel").addEventListener("change", e => { settings.llm.model = e.target.value.trim(); saveSettings(); });
+$("promptTemplate").addEventListener("change", e => { settings.prompt = e.target.value; saveSettings(); });
+$("llmProvider").addEventListener("change", e => {
+  settings.llm.provider = e.target.value;
+  const preset = PROVIDER_PRESETS[settings.llm.provider];
+  if (preset.baseUrl) settings.llm.baseUrl = preset.baseUrl;
+  $("llmBaseUrl").value = settings.llm.baseUrl;
+  $("llmNote").textContent = preset.note;
+  saveSettings();
+});
+$("resetSettingsBtn").addEventListener("click", () => {
+  if (!confirm("設定を初期値に戻しますか?(APIキーも消去されます)")) return;
+  settings = defaultSettings(); saveSettings(); bindSettingsUI(); toast("設定をリセットしました", "ok");
+});
+
+function updateEngineHint() {
+  const names = { webspeech: "エンジン: ブラウザ内蔵", whisper: "エンジン: Whisper API", hybrid: "エンジン: ハイブリッド" };
+  $("engineHint").textContent = names[settings.sttEngine] || "";
+}
+
+/* =========================================================
+ *  Tabs
+ * ======================================================= */
+document.querySelectorAll(".tabs button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.id === btn.dataset.tab));
+  });
+});
+
+/* =========================================================
+ *  Capability detection (tablet / mobile)
+ * ======================================================= */
+const hasDisplayCapture = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!hasDisplayCapture) {
+  $("useDesk").checked = false;
+  $("useDesk").disabled = true;
+  $("deskToggle").classList.add("disabled");
+  $("deskToggle").title = "この端末/ブラウザでは画面音声のキャプチャに対応していません";
+}
+
+/* =========================================================
+ *  Transcript store
+ * ======================================================= */
+const entries = []; // { t: seconds, source: 'mic'|'desk', text }
+let sessionStart = 0;
+
+function addEntry(t, source, text) {
+  text = (text || "").trim();
+  if (!text) return;
+  entries.push({ t, source, text });
+  entries.sort((a, b) => a.t - b.t);
+  renderTranscript();
+}
+
+function renderTranscript() {
+  const box = $("transcript");
+  const interim = $("interimEntry");
+  box.querySelectorAll(".entry:not(.interim)").forEach(e => e.remove());
+  const note = $("emptyNote");
+  if (note) note.style.display = entries.length ? "none" : "";
+  const frag = document.createDocumentFragment();
+  for (const e of entries) {
+    const div = document.createElement("div");
+    div.className = "entry";
+    div.innerHTML =
+      `<span class="time">${fmtTime(e.t)}</span>` +
+      `<span class="src ${e.source}">${e.source === "mic" ? "マイク" : "デスクトップ"}</span>` +
+      `<span class="txt"></span>`;
+    div.querySelector(".txt").textContent = e.text;
+    frag.appendChild(div);
+  }
+  if (interim) box.insertBefore(frag, interim); else box.appendChild(frag);
+  box.scrollTop = box.scrollHeight;
+}
+
+function setInterim(text) {
+  let el = $("interimEntry");
+  if (!text) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "interimEntry";
+    el.className = "entry interim";
+    el.innerHTML = `<span class="src mic">マイク</span><span class="txt"></span>`;
+    $("transcript").appendChild(el);
+  }
+  el.querySelector(".txt").textContent = text;
+  $("transcript").scrollTop = $("transcript").scrollHeight;
+}
+
+function transcriptToMarkdown() {
+  const head = `# 文字起こし (${new Date().toLocaleString("ja-JP")})\n\n`;
+  return head + entries.map(e =>
+    `- \`${fmtTime(e.t)}\` **[${e.source === "mic" ? "マイク" : "デスクトップ"}]** ${e.text}`).join("\n") + "\n";
+}
+function transcriptPlain() {
+  return entries.map(e => `[${fmtTime(e.t)}][${e.source === "mic" ? "マイク" : "デスクトップ"}] ${e.text}`).join("\n");
+}
+
+$("copyTranscriptBtn").addEventListener("click", () => {
+  if (!entries.length) return toast("文字起こしがまだありません", "warn");
+  copyText(transcriptPlain());
+});
+$("downloadTranscriptBtn").addEventListener("click", () => {
+  if (!entries.length) return toast("文字起こしがまだありません", "warn");
+  downloadBlob(new Blob([transcriptToMarkdown()], { type: "text/markdown" }), `transcript_${stamp()}.md`);
+});
+$("clearTranscriptBtn").addEventListener("click", () => {
+  if (entries.length && !confirm("文字起こしをすべて消去しますか?")) return;
+  entries.length = 0; renderTranscript();
+});
+
+/* =========================================================
+ *  Audio capture / mixing / metering
+ * ======================================================= */
+let audioCtx = null;
+let micStream = null, deskStream = null, displayStream = null;
+let mixedRecorder = null, mixedChunks = [], mixedMime = "";
+let running = false;
+let timerInt = null, meterInt = null;
+let analysers = {}; // { mic, desk }
+let wakeLock = null;
+
+function pickMime() {
+  const cands = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+  for (const m of cands) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  return "";
+}
+
+function levelOf(analyser) {
+  if (!analyser) return 0;
+  const buf = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(buf);
+  let sum = 0;
+  for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+  return Math.sqrt(sum / buf.length); // RMS 0..1
+}
+
+function makeAnalyser(stream) {
+  const src = audioCtx.createMediaStreamSource(stream);
+  const an = audioCtx.createAnalyser();
+  an.fftSize = 2048; // 約43ms窓 — 短い発話も取りこぼしにくくする
+  src.connect(an);
+  return an;
+}
+
+/* =========================================================
+ *  STT engine 1: Web Speech API (mic)
+ * ======================================================= */
+let speechRec = null;
+let speechActive = false;
+
+function startWebSpeech() {
+  if (!SpeechRec) {
+    toast("このブラウザは Web Speech API に未対応です。設定で Whisper互換API を選んでください(Chrome / Edge 推奨)。", "error", 7000);
+    return false;
+  }
+  speechRec = new SpeechRec();
+  speechRec.lang = settings.lang;
+  speechRec.continuous = true;
+  speechRec.interimResults = true;
+  speechActive = true;
+
+  speechRec.onresult = (ev) => {
+    let interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const r = ev.results[i];
+      if (r.isFinal) {
+        addEntry((Date.now() - sessionStart) / 1000, "mic", r[0].transcript);
+      } else {
+        interim += r[0].transcript;
+      }
+    }
+    setInterim(interim);
+  };
+  speechRec.onerror = (ev) => {
+    if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+      speechActive = false;
+      toast("音声認識が許可されませんでした。マイク権限を確認してください。", "error");
+    }
+    // 'no-speech' / 'network' などは onend の自動再起動に任せる
+  };
+  speechRec.onend = () => {
+    setInterim("");
+    if (speechActive && running) {
+      try { speechRec.start(); } catch { setTimeout(() => { if (speechActive && running) try { speechRec.start(); } catch {} }, 500); }
+    }
+  };
+  try { speechRec.start(); } catch {}
+  return true;
+}
+
+function stopWebSpeech() {
+  speechActive = false;
+  if (speechRec) { try { speechRec.stop(); } catch {} speechRec = null; }
+  setInterim("");
+}
+
+/* =========================================================
+ *  STT engine 2: Whisper-compatible API (chunked, per source)
+ * ======================================================= */
+class ChunkTranscriber {
+  constructor(stream, source) {
+    this.stream = stream;
+    this.source = source; // 'mic' | 'desk'
+    this.running = false;
+    this.recorder = null;
+    this.timer = null;
+    this.analyser = makeAnalyser(stream);
+    this.peak = 0;
+    this.levelInt = null;
+  }
+  start() {
+    this.running = true;
+    this.levelInt = setInterval(() => { this.peak = Math.max(this.peak, levelOf(this.analyser)); }, 60);
+    this._recordNext();
+  }
+  _recordNext() {
+    if (!this.running) return;
+    const mime = pickMime();
+    const chunks = [];
+    this.peak = 0;
+    const tStart = (Date.now() - sessionStart) / 1000;
+    let rec;
+    try {
+      rec = new MediaRecorder(this.stream, mime ? { mimeType: mime } : undefined);
+    } catch (e) {
+      toast("録音の開始に失敗しました: " + e.message, "error");
+      this.running = false;
+      return;
+    }
+    this.recorder = rec;
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      const peak = this.peak;
+      const blob = new Blob(chunks, { type: mime || "audio/webm" });
+      // ほぼ無音のチャンクはAPIに送らない(コスト・幻覚対策)
+      if (blob.size > 2000 && peak > 0.006) this._send(blob, tStart, mime);
+      this._recordNext();
+    };
+    rec.start();
+    this.timer = setTimeout(() => { if (rec.state !== "inactive") rec.stop(); }, settings.chunkSec * 1000);
+  }
+  async _send(blob, tStart, mime) {
+    const base = settings.whisper.baseUrl;
+    if (!base) return;
+    const ext = (mime || "").includes("mp4") ? "mp4" : "webm";
+    const fd = new FormData();
+    fd.append("file", blob, `chunk.${ext}`);
+    fd.append("model", settings.whisper.model || "whisper-1");
+    fd.append("language", (settings.lang || "ja").split("-")[0]);
+    fd.append("response_format", "json");
+    try {
+      const headers = {};
+      if (settings.whisper.apiKey) headers["Authorization"] = "Bearer " + settings.whisper.apiKey;
+      const res = await fetch(base + "/audio/transcriptions", { method: "POST", headers, body: fd });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      const data = await res.json();
+      if (data.text) addEntry(tStart, this.source, data.text);
+    } catch (e) {
+      console.error("whisper error", e);
+      this._errCount = (this._errCount || 0) + 1;
+      if (this._errCount <= 2) toast(`Whisper API エラー (${this.source === "mic" ? "マイク" : "デスクトップ"}): ${e.message}`, "error", 6000);
+    }
+  }
+  stop() {
+    this.running = false;
+    clearTimeout(this.timer);
+    clearInterval(this.levelInt);
+    if (this.recorder && this.recorder.state !== "inactive") this.recorder.stop(); // 最後のチャンクを送信
+  }
+}
+
+let chunkers = [];
+
+/* =========================================================
+ *  Session start / stop
+ * ======================================================= */
+async function startSession() {
+  const useMic = $("useMic").checked;
+  const useDesk = $("useDesk").checked && hasDisplayCapture;
+  if (!useMic && !useDesk) return toast("マイクまたはデスクトップ音声のどちらかを有効にしてください", "warn");
+
+  const engine = settings.sttEngine;
+  if ((engine === "whisper" || (engine === "hybrid" && useDesk)) && !settings.whisper.baseUrl) {
+    toast("Whisper互換APIのベースURLが未設定です。⚙️設定タブで入力してください。", "error", 6000);
+    document.querySelector('[data-tab="settingsPanel"]').click();
+    return;
+  }
+
+  $("startBtn").disabled = true;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") await audioCtx.resume();
+
+    // --- マイク ---
+    if (useMic) {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+    }
+
+    // --- デスクトップ音声(画面共有ダイアログで「音声を共有」が必要) ---
+    if (useDesk) {
+      displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true, // audio単独指定は不可のためvideoも要求(トラックは即停止する)
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      const audioTracks = displayStream.getAudioTracks();
+      if (!audioTracks.length) {
+        displayStream.getTracks().forEach(t => t.stop());
+        displayStream = null;
+        throw new Error("共有ダイアログで「音声を共有」にチェックが入っていませんでした。もう一度、タブまたは画面全体を選んで音声共有を有効にしてください。");
+      }
+      deskStream = new MediaStream(audioTracks);
+      // 映像トラックは不要なので停止(音声トラックは維持される)
+      displayStream.getVideoTracks().forEach(t => t.stop());
+      // ユーザーがブラウザUIから共有を停止した場合
+      audioTracks[0].addEventListener("ended", () => {
+        if (running) toast("デスクトップ音声の共有が停止されました", "warn");
+      });
+    }
+  } catch (e) {
+    cleanupStreams();
+    $("startBtn").disabled = false;
+    toast("開始できませんでした: " + (e.message || e.name), "error", 8000);
+    return;
+  }
+
+  sessionStart = Date.now();
+  running = true;
+
+  // --- レベルメーター ---
+  if (micStream) analysers.mic = makeAnalyser(micStream);
+  if (deskStream) analysers.desk = makeAnalyser(deskStream);
+  const disp = { mic: 0, desk: 0 }; // 減衰付きピーク表示
+  meterInt = setInterval(() => {
+    disp.mic = Math.max(levelOf(analysers.mic), disp.mic * 0.85);
+    disp.desk = Math.max(levelOf(analysers.desk), disp.desk * 0.85);
+    $("micMeter").style.width = Math.min(100, disp.mic * 300) + "%";
+    $("deskMeter").style.width = Math.min(100, disp.desk * 300) + "%";
+  }, 100);
+
+  // --- ミックスして録音保存 ---
+  if ($("saveAudio").checked) {
+    const dest = audioCtx.createMediaStreamDestination();
+    if (micStream) audioCtx.createMediaStreamSource(micStream).connect(dest);
+    if (deskStream) audioCtx.createMediaStreamSource(deskStream).connect(dest);
+    mixedMime = pickMime();
+    mixedChunks = [];
+    try {
+      mixedRecorder = new MediaRecorder(dest.stream, mixedMime ? { mimeType: mixedMime } : undefined);
+      mixedRecorder.ondataavailable = (e) => { if (e.data.size) mixedChunks.push(e.data); };
+      mixedRecorder.start(1000);
+    } catch (e) { toast("音声保存の開始に失敗: " + e.message, "warn"); mixedRecorder = null; }
+  }
+
+  // --- 文字起こしエンジン起動 ---
+  const engineSel = settings.sttEngine;
+  chunkers = [];
+  if (useMic) {
+    if (engineSel === "webspeech" || engineSel === "hybrid") startWebSpeech();
+    else chunkers.push(new ChunkTranscriber(micStream, "mic"));
+  }
+  if (deskStream) {
+    if (engineSel === "webspeech") {
+      toast("内蔵エンジンはデスクトップ音声を文字起こしできません(録音のみ)。文字起こしするには Whisper互換API か ハイブリッド を選択してください。", "warn", 8000);
+    } else {
+      chunkers.push(new ChunkTranscriber(deskStream, "desk"));
+    }
+  }
+  chunkers.forEach(c => c.start());
+
+  // --- タイマー / 画面スリープ防止 ---
+  timerInt = setInterval(() => { $("timer").textContent = fmtTime((Date.now() - sessionStart) / 1000); }, 500);
+  if (navigator.wakeLock) {
+    try { wakeLock = await navigator.wakeLock.request("screen"); } catch {}
+  }
+
+  $("statusDot").classList.add("rec");
+  $("statusText").textContent = "録音中";
+  $("startBtn").style.display = "none";
+  $("startBtn").disabled = false;
+  $("stopBtn").style.display = "";
+  $("audioDownloadArea").innerHTML = "";
+  toast("録音を開始しました", "ok", 2500);
+}
+
+function cleanupStreams() {
+  [micStream, deskStream, displayStream].forEach(s => s && s.getTracks().forEach(t => t.stop()));
+  micStream = deskStream = displayStream = null;
+  analysers = {};
+  if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+}
+
+function stopSession() {
+  running = false;
+  stopWebSpeech();
+  chunkers.forEach(c => c.stop());
+  chunkers = [];
+
+  if (mixedRecorder && mixedRecorder.state !== "inactive") {
+    mixedRecorder.onstop = () => {
+      const blob = new Blob(mixedChunks, { type: mixedMime || "audio/webm" });
+      if (blob.size > 0) {
+        const ext = (mixedMime || "").includes("mp4") ? "m4a" : "webm";
+        const name = `recording_${stamp()}.${ext}`;
+        const area = $("audioDownloadArea");
+        const btn = document.createElement("button");
+        btn.className = "small";
+        btn.textContent = `⬇️ 録音音声を保存 (${(blob.size / 1048576).toFixed(1)} MB)`;
+        btn.addEventListener("click", () => downloadBlob(blob, name));
+        area.innerHTML = "";
+        area.appendChild(btn);
+      }
+      mixedRecorder = null;
+    };
+    mixedRecorder.stop();
+  }
+
+  cleanupStreams();
+  clearInterval(timerInt);
+  clearInterval(meterInt);
+  $("micMeter").style.width = "0%";
+  $("deskMeter").style.width = "0%";
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+
+  $("statusDot").classList.remove("rec");
+  $("statusText").textContent = "待機中";
+  $("startBtn").style.display = "";
+  $("stopBtn").style.display = "none";
+  toast("録音を停止しました。Whisper使用時は最後のチャンクの結果が数秒後に届くことがあります。", "ok", 4000);
+}
+
+$("startBtn").addEventListener("click", startSession);
+$("stopBtn").addEventListener("click", stopSession);
+
+window.addEventListener("beforeunload", (e) => {
+  if (running) { e.preventDefault(); e.returnValue = ""; }
+});
+document.addEventListener("visibilitychange", async () => {
+  // タブレットで画面を再表示した際に Wake Lock を再取得
+  if (document.visibilityState === "visible" && running && navigator.wakeLock && !wakeLock) {
+    try { wakeLock = await navigator.wakeLock.request("screen"); } catch {}
+  }
+});
+
+/* =========================================================
+ *  LLM: minutes generation (OpenAI-compatible + Anthropic)
+ * ======================================================= */
+let genAbort = null;
+let minutesMarkdown = "";
+
+function llmHeaders() {
+  const { provider, apiKey } = settings.llm;
+  if (provider === "anthropic") {
+    return {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    };
+  }
+  const h = { "Content-Type": "application/json" };
+  if (apiKey) h["Authorization"] = "Bearer " + apiKey;
+  return h;
+}
+
+async function* streamChat(promptText, signal) {
+  const { provider, baseUrl, model } = settings.llm;
+  if (!baseUrl) throw new Error("議事録AIのベースURLが未設定です(⚙️設定タブ)");
+  if (!model) throw new Error("議事録AIのモデル名が未設定です(⚙️設定タブ)");
+
+  if (provider === "anthropic") {
+    const res = await fetch(baseUrl + "/messages", {
+      method: "POST", headers: llmHeaders(), signal,
+      body: JSON.stringify({
+        model,
+        max_tokens: 4096,
+        stream: true,
+        messages: [{ role: "user", content: promptText }],
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    for await (const data of sseLines(res, signal)) {
+      let ev; try { ev = JSON.parse(data); } catch { continue; }
+      if (ev.type === "content_block_delta" && ev.delta && ev.delta.text) yield ev.delta.text;
+      if (ev.type === "error") throw new Error(ev.error && ev.error.message || "API error");
+    }
+    return;
+  }
+
+  // OpenAI 互換 (LM Studio / Ollama / OpenAI / Groq / custom)
+  const res = await fetch(baseUrl + "/chat/completions", {
+    method: "POST", headers: llmHeaders(), signal,
+    body: JSON.stringify({
+      model,
+      stream: true,
+      temperature: 0.3,
+      messages: [{ role: "user", content: promptText }],
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  for await (const data of sseLines(res, signal)) {
+    if (data === "[DONE]") return;
+    let ev; try { ev = JSON.parse(data); } catch { continue; }
+    const delta = ev.choices && ev.choices[0] && ev.choices[0].delta;
+    if (delta && delta.content) yield delta.content;
+  }
+}
+
+async function* sseLines(res) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop();
+    for (const line of lines) {
+      const m = line.match(/^data:\s?(.*)$/);
+      if (m) yield m[1];
+    }
+  }
+}
+
+async function generateMinutes() {
+  if (!entries.length) return toast("文字起こしがまだありません。先に録音してください。", "warn");
+  const promptText = (settings.prompt || DEFAULT_PROMPT).includes("{transcript}")
+    ? settings.prompt.replace("{transcript}", transcriptPlain())
+    : settings.prompt + "\n\n--- 文字起こし ---\n" + transcriptPlain();
+
+  genAbort = new AbortController();
+  $("genMinutesBtn").disabled = true;
+  $("stopGenBtn").style.display = "";
+  $("genStatus").innerHTML = `<span class="spinner"></span> ${settings.llm.model} で生成中…`;
+  minutesMarkdown = "";
+  const out = $("minutesOut");
+  out.innerHTML = "";
+
+  try {
+    for await (const chunk of streamChat(promptText, genAbort.signal)) {
+      minutesMarkdown += chunk;
+      out.innerHTML = renderMarkdown(minutesMarkdown);
+      out.scrollTop = out.scrollHeight;
+    }
+    $("genStatus").textContent = "✅ 完了";
+    toast("議事録を作成しました", "ok");
+  } catch (e) {
+    if (e.name === "AbortError") {
+      $("genStatus").textContent = "停止しました";
+    } else {
+      $("genStatus").textContent = "";
+      out.innerHTML += `<p style="color:var(--danger)">エラー: ${e.message}</p>`;
+      toast("議事録の生成に失敗しました: " + e.message, "error", 8000);
+      if (/Failed to fetch|NetworkError|Load failed/i.test(e.message)) {
+        toast("接続できません。サーバー起動・URL・CORS設定(LM Studio: Enable CORS)を確認してください。", "warn", 9000);
+      }
+    }
+  } finally {
+    $("genMinutesBtn").disabled = false;
+    $("stopGenBtn").style.display = "none";
+    genAbort = null;
+  }
+}
+
+$("genMinutesBtn").addEventListener("click", generateMinutes);
+$("stopGenBtn").addEventListener("click", () => genAbort && genAbort.abort());
+$("copyMinutesBtn").addEventListener("click", () => {
+  if (!minutesMarkdown) return toast("議事録がまだありません", "warn");
+  copyText(minutesMarkdown);
+});
+$("downloadMinutesBtn").addEventListener("click", () => {
+  if (!minutesMarkdown) return toast("議事録がまだありません", "warn");
+  downloadBlob(new Blob([minutesMarkdown], { type: "text/markdown" }), `minutes_${stamp()}.md`);
+});
+
+/* --- モデル一覧取得 / 接続テスト --- */
+$("fetchModelsBtn").addEventListener("click", async () => {
+  const { baseUrl } = settings.llm;
+  if (!baseUrl) return toast("先にベースURLを入力してください", "warn");
+  $("fetchModelsBtn").disabled = true;
+  try {
+    const res = await fetch(baseUrl + "/models", { headers: llmHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const models = (data.data || data.models || []).map(m => m.id || m.name).filter(Boolean);
+    if (!models.length) throw new Error("モデルが見つかりません");
+    $("modelList").innerHTML = models.map(m => `<option value="${m}">`).join("");
+    if (!settings.llm.model) { settings.llm.model = models[0]; $("llmModel").value = models[0]; saveSettings(); }
+    toast(`${models.length} 件のモデルを取得しました(モデル欄で選択できます)`, "ok");
+  } catch (e) {
+    toast("モデル一覧の取得に失敗: " + e.message, "error", 7000);
+  } finally {
+    $("fetchModelsBtn").disabled = false;
+  }
+});
+
+$("testLlmBtn").addEventListener("click", async () => {
+  $("testLlmBtn").disabled = true;
+  try {
+    let reply = "";
+    const abort = new AbortController();
+    const timeout = setTimeout(() => abort.abort(), 30000);
+    for await (const chunk of streamChat("接続テストです。「OK」とだけ返答してください。", abort.signal)) {
+      reply += chunk;
+      if (reply.length > 40) { abort.abort(); break; }
+    }
+    clearTimeout(timeout);
+    toast("✅ 接続成功: " + reply.trim().slice(0, 60), "ok", 5000);
+  } catch (e) {
+    if (e.name !== "AbortError") toast("接続失敗: " + e.message, "error", 8000);
+    else toast("✅ 接続成功", "ok");
+  } finally {
+    $("testLlmBtn").disabled = false;
+  }
+});
+
+/* =========================================================
+ *  Init
+ * ======================================================= */
+bindSettingsUI();
+if (!window.isSecureContext) {
+  toast("⚠️ 非セキュアな接続(http)ではマイクを利用できません。HTTPS か localhost、またはファイルを直接開いてください。", "warn", 10000);
+}
+</script>
+</body>
+</html>
